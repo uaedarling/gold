@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# AI model artifacts (trained weights — regenerated at runtime)
+gold_quant_ai/ai_engine/models/*.json
+
+# Signals log (runtime-generated)
+gold_quant_ai/signals_log.csv
+
+# OS
+.DS_Store
+Thumbs.db
