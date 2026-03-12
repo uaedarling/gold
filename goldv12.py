@@ -38,12 +38,15 @@ SCAN_INTERVAL  = 5             # seconds between main loop iterations
 MAX_POSITIONS  = 3             # max concurrent open trades
 BREAKEVEN_R    = 1.0           # move SL to BE after this many R:R
 
-# Session-aware spread limits (MT5 point units — XAUUSDm point=0.01)
+# Session-aware spread limits in raw price units (USD for XAUUSD).
+# get_spread() returns (ask - bid) directly — e.g. a normal gold spread
+# of ~$3.50–$4.00 USD.  Set limits well above the typical broker spread
+# so that only truly abnormal widenings block trading.
 SPREAD_LIMITS = {
-    "LONDON":   20.0,
-    "NEW YORK": 20.0,
-    "ASIA":     50.0,
-    "OVERLAP":  25.0,
+    "LONDON":   5.0,   # USD — block if spread > $5 during London session
+    "NEW YORK": 5.0,   # USD — same for New York
+    "ASIA":     10.0,  # USD — wider tolerance during Asia off-hours
+    "OVERLAP":  7.0,   # USD — London/NY overlap
 }
 
 # Signal queue
@@ -178,12 +181,17 @@ def get_session() -> str:
 # MARKET DATA HELPERS
 # ─────────────────────────────────────────────────────────────────
 def get_spread() -> float:
+    """Return the current bid/ask spread in raw price units (USD for XAUUSD).
+
+    Using (ask - bid) directly — e.g. 3.96 — is human-readable and keeps
+    the SPREAD_LIMITS scale straightforward.  Dividing by point would give
+    values in the hundreds (396 for the same spread), making the limits
+    impossible to reason about and causing every trade to be blocked.
+    """
     tick = mt5.symbol_info_tick(SYMBOL)
     if tick is None:
         return 9999.0
-    info = mt5.symbol_info(SYMBOL)
-    point = info.point if info else 0.01
-    return (tick.ask - tick.bid) / point
+    return round(tick.ask - tick.bid, 5)
 
 
 def get_price() -> tuple:
@@ -241,9 +249,9 @@ def calc_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> float:
 def spread_ok(session=None) -> tuple:
     spread = get_spread()
     sess   = session or get_session()
-    limit  = SPREAD_LIMITS.get(sess, 20.0)
+    limit  = SPREAD_LIMITS.get(sess, 5.0)
     if spread > limit:
-        log(f"SPREAD BLOCKED | {spread} > limit {limit} ({sess})")
+        log(f"SPREAD BLOCKED | {spread:.5f} > limit {limit} ({sess})")
         return False, spread, limit
     return True, spread, limit
 
@@ -532,7 +540,7 @@ def dashboard() -> None:
         return
     session          = get_session()
     ok, spread, limit = spread_ok(session)
-    sess_spread_limit = SPREAD_LIMITS.get(session, 20.0)
+    sess_spread_limit = SPREAD_LIMITS.get(session, 5.0)
     df_atr           = get_candles(ATR_TF)
     atr_val          = calc_atr(df_atr) if df_atr is not None else 0.0
     positions        = mt5.positions_get(symbol=SYMBOL) or []
@@ -544,7 +552,7 @@ def dashboard() -> None:
     print(f"  Session     : {session}")
     print(f"  Balance     : {account.balance:.2f} | Equity: {account.equity:.2f}")
     print(f"  Floating P&L: {floating:.2f}")
-    print(f"  ATR(M5)     : {round(atr_val,5)} | Spread: {spread} / limit {sess_spread_limit} ({'OK' if ok else 'HIGH'})")
+    print(f"  ATR(M5)     : {round(atr_val,5)} | Spread: {spread:.5f} / limit {sess_spread_limit} ({'OK' if ok else 'HIGH'})")
     print(f"  Open trades : {len(open_pos)} / {MAX_POSITIONS}")
     print(f"  Queue       : {len(signal_queue)} pending signal(s)")
     print(f"  Circuit Brk : {'ACTIVE' if circuit_broken else 'OK'}")
@@ -616,7 +624,7 @@ def main() -> None:
     log("=" * 62)
     log(f"GoldBot v12 starting — session {SESSION_TS}")
     log(f"Symbol: {SYMBOL} | Magic: {MAGIC} | Risk: {RISK_PER_TRADE*100:.1f}%")
-    log(f"Spread limits: Asia={SPREAD_LIMITS.get('ASIA', 50.0)} | London={SPREAD_LIMITS.get('LONDON', 20.0)} | NY={SPREAD_LIMITS.get('NEW YORK', 20.0)}")
+    log(f"Spread limits (USD): Asia={SPREAD_LIMITS.get('ASIA', 10.0)} | London={SPREAD_LIMITS.get('LONDON', 5.0)} | NY={SPREAD_LIMITS.get('NEW YORK', 5.0)} | Overlap={SPREAD_LIMITS.get('OVERLAP', 7.0)}")
     log(f"Signal queue TTL={SIGNAL_QUEUE_TTL}s (retry on spread normalization)")
     log(f"Files: {LOG_FILE} | {TRADES_FILE} | {SIGNALS_FILE} | {MISSED_FILE} | {CANDLES_FILE} | {SPREADS_FILE}")
     log("=" * 62)
